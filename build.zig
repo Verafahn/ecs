@@ -16,6 +16,8 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(&run_test.step);
 
     if (b.isRoot()) {
+        const check_examples = b.step("check-examples", "Compile examples without running them.");
+
         {
             const exe = b.addExecutable(.{
                 .name = "map",
@@ -28,6 +30,7 @@ pub fn build(b: *std.Build) !void {
                     },
                 }),
             });
+            check_examples.dependOn(&exe.step);
             const run = b.addRunArtifact(exe);
             run.addPassthruArgs();
             const step = b.step("run-map", "Run example 'map.zig'");
@@ -45,6 +48,7 @@ pub fn build(b: *std.Build) !void {
                     },
                 }),
             });
+            check_examples.dependOn(&exe.step);
             const run = b.addRunArtifact(exe);
             run.addPassthruArgs();
             const step = b.step("run-sparse_set", "Run example 'sparse_set.zig'");
@@ -62,6 +66,7 @@ pub fn build(b: *std.Build) !void {
                     },
                 }),
             });
+            check_examples.dependOn(&exe.step);
             const run = b.addRunArtifact(exe);
             run.addPassthruArgs();
             const step = b.step("run-archetype", "Run example 'archetype.zig'");

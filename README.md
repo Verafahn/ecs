@@ -205,8 +205,9 @@ currently provides multi-component queries (joins); iteration is per component.
 ## Building and testing
 
 ```sh
-zig build test          # run unit tests
-zig build run-map       # run the Map example
+zig build test           # run unit tests
+zig build check-examples # compile examples without running them
+zig build run-map        # run the Map example
 zig build run-sparse_set
 zig build run-archetype
 ```
@@ -214,6 +215,9 @@ zig build run-archetype
 The examples are endless simulation loops that print positions every 200 ticks;
 stop them with `Ctrl+C`. They are only defined when this repository is the root
 package (see `b.isRoot()` in `build.zig`).
+
+CI runs the tests and the example compile check on Linux, macOS, and Windows
+with the minimum supported Zig version and the latest tested version.
 
 ## Project layout
 
@@ -237,3 +241,7 @@ This is version `0.1.0`; the API is pre-1.0 and may change. Current limits:
 - No entity generation or versioning, and no explicit `destroy` operation.
 - No serialization, events, change detection, or command buffers.
 - The `std.Io`-based scheduling API follows recent Zig releases.
+
+## License
+
+Released under the [MIT License](LICENSE).
