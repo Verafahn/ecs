@@ -1,0 +1,13 @@
+.{
+    .name = .ecs,
+    .version = "0.1.0",
+    .fingerprint = 0x3681c83b713d3bc4,
+    .min_zig_version = "0.17.0",
+    .paths = .{
+        "src",
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+        "LICENSE",
+    },
+}
