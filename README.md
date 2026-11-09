@@ -2,27 +2,24 @@
 
 A small, backend-agnostic entity-component-system (ECS) library for Zig.
 
-`ecs` keeps storage and scheduling separate. Three interchangeable backends
-(`Map`, `SparseSet`, `Archetype`) expose the same world API, while systems
-declare their component reads and writes as compile-time data. `MakeSystem`
-turns those declarations into a staged schedule, and stages without conflicts
-run concurrently through `std.Io`.
+`ecs` separates storage from scheduling. Three interchangeable backends
+(`Map`, `SparseSet`, `Archetype`) expose the same world API. Systems declare
+component reads and writes at compile time; `MakeSystem` turns those
+declarations into a staged schedule, and stages without conflicts run
+concurrently through `std.Io`.
 
 ## Features
 
-- Three storage backends behind one API: `Map`, `SparseSet`, `Archetype`.
+- One API, three storage backends: `Map`, `SparseSet`, `Archetype`.
 - Component sets are plain structs; field names become a compile-time enum.
-- Entity indices can be any integer type, with an optional ID generator.
-- Compile-time system scheduling with automatic staging and cycle detection.
+- Compile-time scheduling with automatic staging and cycle detection.
 - Concurrent stage execution through `std.Io`.
-- Compile-time validation of executor declarations and component names.
 - Only depends on the Zig standard library.
 
 ## Requirements
 
 - Zig 0.17.0 or newer.
-- The scheduling and execution APIs use `std.Io`; the examples use
-  `std.process.Init`.
+- Scheduling and execution use `std.Io`; examples use `std.process.Init`.
 
 ## Installation
 
@@ -34,14 +31,14 @@ Use the repository as a path dependency:
 },
 ```
 
-Then expose the module to your executable or library in `build.zig`:
+Expose the module in `build.zig`:
 
 ```zig
 const ecs = b.dependency("ecs", .{});
 exe.root_module.addImport("ecs", ecs.module("ecs"));
 ```
 
-The module name is `ecs`, which matches `@import("ecs")` in the examples.
+The module name is `ecs`, matching `@import("ecs")` in the examples.
 
 ## Quick start
 
@@ -87,18 +84,17 @@ pub fn main(init: std.process.Init) !void {
 }
 ```
 
-Changing `SparseSet` to `Map` or `Archetype` is enough to switch storage
-backends; the rest of the code does not change.
+Changing `SparseSet` to `Map` or `Archetype` switches storage backends; the
+rest of the code does not change.
 
 ## Core concepts
 
 ### Entities
 
-An entity is just an integer index. `create()` returns the next value from an
-embedded generator (the first value is `1`), but you may use any integer value
-directly. There is no separate entity list: an entity exists as long as it has
-at least one component. Under the `Archetype` backend, removing an entity's
-last component forgets it.
+An entity is an integer index. `create()` returns the next generated value
+(starting at `1`), but any integer value may be used directly. There is no
+separate entity list: an entity exists as long as it has at least one component.
+Under the `Archetype` backend, removing an entity's last component forgets it.
 
 Entity indices are not versioned. Reusing an index after removing all of its
 components is allowed, but stale handles cannot be detected.
@@ -106,7 +102,7 @@ components is allowed, but stale handles cannot be detected.
 ### Components
 
 The component set is a non-tuple struct. Its field names become the `Component`
-enum used by every access, and its field types are the component types:
+enum, and its field types are the component types:
 
 ```zig
 const Components = struct {
@@ -116,13 +112,12 @@ const Components = struct {
 };
 ```
 
-Worlds expose `World.Component` (the generated enum) and
-`World.ComponentType(.position)` for the mapped types. Components may be
-zero-sized.
+Worlds expose `World.Component` and `World.ComponentType(.position)`.
+Components may be zero-sized.
 
-### Worlds
+### World API
 
-All three backends provide the same methods:
+All backends provide the same methods:
 
 | Method | Description |
 | --- | --- |
@@ -137,13 +132,13 @@ All three backends provide the same methods:
 | `iterator(.component)` | Iterate `ComponentItem{ entity, value_ptr }`. |
 | `execute(System, io, context)` | Run a schedule made by `MakeSystem`. |
 
-`add`, `remove`, `init`, and `deinit` may allocate. Iterators and pointers
-returned by `getPtr` may be invalidated by structural changes (adding or
-removing components). Mutating the value behind a `value_ptr` during iteration
-is fine; adding or removing components during iteration is not. Iteration order
-is unspecified for every backend.
+`add`, `remove`, `init`, and `deinit` may allocate. Iterators and pointers from
+`getPtr` may be invalidated by structural changes (adding or removing
+components). Mutating the value behind a `value_ptr` during iteration is fine;
+adding or removing components during iteration is not. Iteration order is
+unspecified for every backend.
 
-### Systems and scheduling
+## Systems and scheduling
 
 An executor declares the components it reads and writes and implements
 `execute`:
@@ -163,8 +158,9 @@ try world.execute(Frame, io, context);
 ```
 
 `read` and `write` must be tuples of component enum literals (use `.{}` for an
-empty set). `execute` must return `void`. `MakeSystem` builds a type with the
-following schedule information:
+empty set). `execute` must return `void`.
+
+`MakeSystem` produces a type with:
 
 - `stages`: a `[stage_count][stage_width]type` array, padded with `void`.
 - `stage_lengths`: a `[stage_count]usize` array with each stage's width.
@@ -175,11 +171,9 @@ Scheduling rules:
 - Multiple writers of the same component run in declaration order.
 - Systems in the same stage have no write/write or read/write conflict and may
   run concurrently.
-- If the declared accesses form a dependency cycle, `MakeSystem` reports a
-  compile error naming the systems involved.
+- Dependency cycles are reported as compile errors naming the systems involved.
 - Component names are validated against `World.Component` when the schedule is
-  executed, so a typo fails at compile time even if the executor was declared
-  in another file.
+  executed, so typos fail at compile time.
 
 Concurrency constraints:
 
@@ -188,8 +182,8 @@ Concurrency constraints:
 - Every executor receives the same `context`. Executors running concurrently
   must not mutate shared context state without synchronization.
 - Do not add or remove components while a schedule is running.
-- Only mutate components listed in the executor's `write` set. The library
-  does not lock component storage; correctness depends on the declarations.
+- Only mutate components listed in the executor's `write` set. The library does
+  not lock component storage; correctness depends on the declarations.
 
 ## Backends
 
@@ -199,8 +193,18 @@ Concurrency constraints:
 | `SparseSet` | Sparse map from entity to dense row, plus dense entity/value arrays. | Contiguous iteration; O(1) lookup plus array index; cheap swap-remove. | Removing an element moves the last element and invalidates outstanding pointers. |
 | `Archetype` | Entities grouped by component signature; packed byte columns per component. | Cache-friendly scans over packed columns; cheap to scan a component across many entities. | `add`/`remove` move the entity between archetypes and copy its other components. |
 
-All backends pass the same conformance test in `src/root.zig`. None of them
-currently provides multi-component queries (joins); iteration is per component.
+All backends pass the same conformance test in `src/root.zig`.
+
+## Limitations
+
+This is version `0.1.0`; the API is pre-1.0 and may change.
+
+- Iteration is single-component; there are no joins or multi-component queries.
+- Executors return `void`, so systems cannot report errors. `execute` only
+  returns `std.Io.ConcurrentError` from spawning and awaiting tasks.
+- No entity generation or versioning, and no explicit `destroy` operation.
+- No serialization, events, change detection, or command buffers.
+- The `std.Io`-based scheduling API follows recent Zig releases.
 
 ## Building and testing
 
@@ -214,33 +218,7 @@ zig build run-archetype
 
 The examples are endless simulation loops that print positions every 200 ticks;
 stop them with `Ctrl+C`. They are only defined when this repository is the root
-package (see `b.isRoot()` in `build.zig`).
-
-CI runs the tests and the example compile check on Linux, macOS, and Windows
-with the minimum supported Zig version and the latest tested version.
-
-## Project layout
-
-```text
-src/root.zig        module root: shared API, scheduler, conformance tests
-src/map.zig         hash-map backend
-src/sparse_set.zig  sparse-set backend
-src/archetype.zig   archetype backend
-examples/           one runnable example per backend
-build.zig           module definition, tests, and example run steps
-build.zig.zon       package metadata
-```
-
-## Status and limitations
-
-This is version `0.1.0`; the API is pre-1.0 and may change. Current limits:
-
-- Iteration is single-component; there are no joins or multi-component queries.
-- Executors return `void`, so systems cannot report errors. `execute` only
-  returns `std.Io.ConcurrentError` from spawning and awaiting tasks.
-- No entity generation or versioning, and no explicit `destroy` operation.
-- No serialization, events, change detection, or command buffers.
-- The `std.Io`-based scheduling API follows recent Zig releases.
+package.
 
 ## License
 
