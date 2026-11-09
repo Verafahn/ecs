@@ -654,9 +654,30 @@ fn exerciseWorld(comptime World: type) !void {
 }
 
 test "all storage backends expose the same API" {
-    try exerciseWorld(Map(u32, SharedComponents));
-    try exerciseWorld(SparseSet(u32, SharedComponents));
-    try exerciseWorld(Archetype(u32, SharedComponents));
+    const MapTest = Map(u32, SharedComponents);
+    const SparseSetTest = SparseSet(u32, SharedComponents);
+    const ArchetypeTest = Archetype(u32, SharedComponents);
+
+    try exerciseWorld(MapTest);
+    try exerciseWorld(SparseSetTest);
+    try exerciseWorld(ArchetypeTest);
+
+    const all_map_decls = @typeInfo(MapTest).@"struct".decl_names;
+    const all_sparseset_decls = @typeInfo(SparseSetTest).@"struct".decl_names;
+    const all_archetype_decls = @typeInfo(ArchetypeTest).@"struct".decl_names;
+
+    inline for (all_map_decls) |name| {
+        try std.testing.expect(@hasDecl(SparseSetTest, name));
+        try std.testing.expect(@hasDecl(ArchetypeTest, name));
+    }
+    inline for (all_sparseset_decls) |name| {
+        try std.testing.expect(@hasDecl(MapTest, name));
+        try std.testing.expect(@hasDecl(ArchetypeTest, name));
+    }
+    inline for (all_archetype_decls) |name| {
+        try std.testing.expect(@hasDecl(MapTest, name));
+        try std.testing.expect(@hasDecl(SparseSetTest, name));
+    }
 }
 
 test "empty component sets and empty schedules are valid" {
