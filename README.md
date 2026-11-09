@@ -2,7 +2,7 @@
 
 A small, backend-agnostic entity-component-system (ECS) library for Zig. Three backends (`Map`, `SparseSet`, `Archetype`) expose the same API and are freely interchangeable; it depends only on the Zig standard library.
 
-Storage and scheduling are separated: systems declare component reads and writes at compile time, `MakeSystem` turns those declarations into a staged schedule, and stages without conflicts run concurrently through `std.Io`. The component set is a plain struct; field names become a compile-time enum. Dependency cycles and component-name typos are both reported at compile time.
+Storage and scheduling are separated: systems declare component reads and writes at compile time, `MakeSystem` turns those declarations into a staged schedule, and stages without conflicts run concurrently through `std.Io`. The component set is a plain struct; field names become a compile-time enum. Every backend supports single-component iteration and generated multi-component queries. Dependency cycles and component-name typos are both reported at compile time.
 
 ## Requirements
 
@@ -41,13 +41,10 @@ const Move = struct {
     pub const write = .{.position};
 
     pub fn execute(world: *World, dt: f32) void {
-        var it = world.iterator(.velocity);
-        while (it.next()) |item| {
-            const velocity = item.value_ptr.*;
-            if (world.getPtr(item.entity, .position)) |position| {
-                position.x += velocity.x * dt;
-                position.y += velocity.y * dt;
-            }
+        var query = world.query(.{ .position, .velocity });
+        while (query.next()) |item| {
+            item.position.x += item.velocity.x * dt;
+            item.position.y += item.velocity.y * dt;
         }
     }
 };
@@ -76,6 +73,19 @@ An `Entity` is an integer index; the index type can be chosen freely. The module
 ### Component
 
 A `Component` is data bound to an `Entity`. Declare all valid components with a plain struct; field names become the compile-time `Component` enum and field types are the component types. The backend's internal representation is generated at compile time. Zero-sized components are allowed.
+
+### Joint queries
+
+`query` yields only entities that have every requested component, with one pointer per component:
+
+```zig
+var query = world.query(.{ .position, .velocity });
+while (query.next()) |item| {
+    item.position.x += item.velocity.x * dt;
+}
+```
+
+The generated row contains `entity` plus one `*T` field per queried component, named after the component and ordered like the query. At least one component is required; duplicate components and a component named `entity` are compile errors. `Map` uses the first queried component to drive the iteration, `SparseSet` picks the smallest component set, and `Archetype` visits only matching archetypes. Structural changes may invalidate the query.
 
 ### Systems and scheduling
 
@@ -106,6 +116,7 @@ All backends provide the same methods:
 | `has(entity, .component)` | Whether the entity has the component. |
 | `count(.component)` | Number of entities with that component. |
 | `iterator(.component)` | Iterate `ComponentItem{ entity, value_ptr }`. |
+| `query(.{ .position, .velocity })` | Iterate entities that have all listed components. |
 | `execute(System, io, context)` | Run a schedule made by `MakeSystem`. |
 
 `add`, `remove`, `init`, and `deinit` may allocate. Iterators and pointers returned by `getPtr` may be invalidated by structural changes (adding or removing components); mutating the value behind a `value_ptr` during iteration is safe, but adding or removing components is not. Iteration order is unspecified for all backends.
@@ -114,9 +125,9 @@ All backends provide the same methods:
 
 | Backend | Storage | Strengths | Trade-offs |
 | --- | --- | --- | --- |
-| `Map` | One hash map per component. | Simplest layout; only entities that have a component pay for it. | Lookups hash; iteration jumps across buckets. |
-| `SparseSet` | Sparse map + dense entity/value arrays. | Contiguous iteration; O(1) lookup; cheap swap-remove. | Removing an element moves the last element and invalidates outstanding pointers. |
-| `Archetype` | Entities grouped by component signature; packed byte columns per component. | Cache-friendly scans over packed columns. | `add`/`remove` move entities between archetypes and copy their other components. |
+| `Map` | One hash map per component. | Simplest layout; only entities that have a component pay for it. | Lookups hash; iteration jumps across buckets; the first query component drives joins. |
+| `SparseSet` | Sparse map + dense entity/value arrays. | Contiguous iteration; O(1) lookup; the smallest set drives joins; cheap swap-remove. | Removing an element moves the last element and invalidates outstanding pointers. |
+| `Archetype` | Entities grouped by component signature; packed byte columns per component. | Cache-friendly scans; joins visit only matching archetypes. | `add`/`remove` move entities between archetypes and copy their other components. |
 
 <details>
 <summary>Full comparison table</summary>
@@ -127,6 +138,7 @@ All backends provide the same methods:
 | Single-component lookup | Average O(1), worst O(n) | O(1) | O(1) |
 | Add/remove component | O(1) | O(1) amortized swap-remove | High: migrate between archetypes and copy all components |
 | Single-component iteration | Poor: scattered nodes, frequent cache misses | Good: contiguous dense arrays | Excellent: contiguous packed columns |
+| Joint query | First queried component drives; probes the rest | Smallest component set drives the loop | Scans only archetypes containing the full signature |
 | Cache friendliness | Poor | Good | Excellent |
 | Entity reference stability | May be invalidated on rehash | **Removing an element moves the last element and invalidates pointers to the moved entity** | Structural changes move entities |
 | Implementation complexity | Lowest | Medium | Highest |

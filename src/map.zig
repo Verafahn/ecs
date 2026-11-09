@@ -122,6 +122,52 @@ pub fn Map(comptime Entry: type, comptime Components: type) type {
             return .{ .inner = map.iterator() };
         }
 
+        /// Iterates entities that have every component in `queried`.
+        ///
+        /// The first queried component drives the iteration, so put the
+        /// rarest component first. Adding or removing components may
+        /// invalidate the query.
+        pub fn Query(comptime queried: anytype) type {
+            root.validateQuery(Components, queried);
+            const driver = root.queryComponent(Components, queried[0]);
+
+            return struct {
+                world: *Self,
+                inner: Iterator(driver),
+
+                pub const Item = root.QueryItem(Entry, Components, queried);
+
+                pub fn next(self: *@This()) ?Item {
+                    while (self.inner.next()) |row| {
+                        var item: Item = undefined;
+                        item.entity = row.entity;
+                        var complete = true;
+
+                        inline for (queried, 0..) |component, i| {
+                            const id = comptime root.queryComponent(Components, component);
+                            if (i == 0) {
+                                @field(item, @tagName(id)) = row.value_ptr;
+                            } else if (self.world.getPtr(row.entity, id)) |value| {
+                                @field(item, @tagName(id)) = value;
+                            } else {
+                                complete = false;
+                            }
+                        }
+
+                        if (!complete) continue;
+                        return item;
+                    }
+                    return null;
+                }
+            };
+        }
+
+        /// Creates a joint query over the components in `queried`.
+        pub fn query(self: *Self, comptime queried: anytype) Query(queried) {
+            const driver = comptime root.queryComponent(Components, queried[0]);
+            return .{ .world = self, .inner = self.iterator(driver) };
+        }
+
         /// Runs a schedule produced by `root.MakeSystem`.
         pub fn execute(
             self: *Self,

@@ -134,6 +134,62 @@ pub fn SparseSet(comptime Entry: type, comptime Components: type) type {
             };
         }
 
+        /// Iterates entities that have every component in `queried`.
+        ///
+        /// The smallest component set drives the iteration. Adding or
+        /// removing components may invalidate the query.
+        pub fn Query(comptime queried: anytype) type {
+            root.validateQuery(Components, queried);
+
+            return struct {
+                world: *Self,
+                entities: []const Entity,
+                index: usize = 0,
+
+                pub const Item = root.QueryItem(Entry, Components, queried);
+
+                pub fn next(self: *@This()) ?Item {
+                    while (self.index < self.entities.len) {
+                        const entity = self.entities[self.index];
+                        self.index += 1;
+
+                        var item: Item = undefined;
+                        var complete = true;
+
+                        inline for (queried) |component| {
+                            const id = comptime root.queryComponent(Components, component);
+                            if (self.world.getPtr(entity, id)) |value| {
+                                @field(item, @tagName(id)) = value;
+                            } else {
+                                complete = false;
+                            }
+                        }
+
+                        if (!complete) continue;
+                        item.entity = entity;
+                        return item;
+                    }
+                    return null;
+                }
+            };
+        }
+
+        /// Creates a joint query over the components in `queried`.
+        pub fn query(self: *Self, comptime queried: anytype) Query(queried) {
+            var driver: []const Entity = &.{};
+            var found = false;
+            inline for (queried) |component| {
+                const id = comptime root.queryComponent(Components, component);
+                const storage = &@field(self.data, @tagName(id));
+                const entities = storage.dense_entities.items;
+                if (!found or entities.len < driver.len) {
+                    driver = entities;
+                    found = true;
+                }
+            }
+            return .{ .world = self, .entities = driver };
+        }
+
         /// Runs a schedule produced by `root.MakeSystem`.
         pub fn execute(
             self: *Self,

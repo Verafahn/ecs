@@ -16,12 +16,10 @@ pub const MoveSystem = struct {
     pub const write = .{.pos};
 
     pub fn execute(self: *ecs.Map(usize, Components), context: Context) void {
-        var iter = self.iterator(.vel);
-        while (iter.next()) |item| {
-            if (self.getPtr(item.entity, .pos)) |pos| {
-                pos.x += item.value_ptr.x * context.dt;
-                pos.y += item.value_ptr.y * context.dt;
-            }
+        var query = self.query(.{ .pos, .vel });
+        while (query.next()) |item| {
+            item.pos.x += item.vel.x * context.dt;
+            item.pos.y += item.vel.y * context.dt;
         }
     }
 };
