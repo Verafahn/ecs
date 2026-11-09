@@ -1,9 +1,9 @@
-/// Shared building blocks for the ECS implementations.
-///
-/// `map.zig`, `sparse_set.zig`, and `archetype.zig` are three storage
-/// strategies behind the same public API. Entity validation, component field
-/// inspection, system scheduling, and execution live here so the storage
-/// modules only contain their storage logic.
+//! Shared building blocks for the ECS implementations.
+//!
+//! `Map`, `SparseSet`, and `Archetype` are interchangeable storage backends
+//! with the same world API. Type validation, component introspection, system
+//! scheduling, and execution live here; the backend modules contain only
+//! storage logic.
 const std = @import("std");
 
 const meta = std.meta;
@@ -44,7 +44,6 @@ pub fn validateComponentsType(comptime Components: type) void {
     }
 }
 
-/// Returns the component type attached to `component`.
 pub fn fieldType(
     comptime Components: type,
     comptime component: meta.FieldEnum(Components),
@@ -54,8 +53,8 @@ pub fn fieldType(
 
 /// A row yielded by a component iterator.
 ///
-/// `value_ptr` points into the world's storage. Structural changes (adding or
-/// removing components) may invalidate it, as with any ECS.
+/// `value_ptr` points into the world's storage and may be invalidated by
+/// structural changes (adding or removing components).
 pub fn ComponentItem(comptime Entry: type, comptime T: type) type {
     return struct {
         entity: Entry,
@@ -77,11 +76,10 @@ pub fn StorageStruct(
     return @Struct(.auto, null, info.field_names, &storage_types, &@splat(.{}));
 }
 
-/// Optional entity index generator.
+/// Optional entity index generator used by each world's `create`.
 ///
-/// Worlds also embed one and expose `create`, but it is not required: any
-/// integer value can be used as an entity index. `next` wraps on overflow, so
-/// an enormous run can eventually reuse indices; call `reset` to start over.
+/// Any integer is a valid entity index, so the generator is a convenience.
+/// `next` wraps on overflow; call `reset` to start over.
 pub fn EntryGenerator(comptime Entry: type) type {
     validateEntityType(Entry);
     return struct {
@@ -123,8 +121,9 @@ pub fn EntryGenerator(comptime Entry: type) type {
 /// - A system that writes a component runs before systems that read it.
 /// - Systems that both write a component are ordered by their position in
 ///   `executors`, preserving declaration order for write-write conflicts.
-/// - Systems in the same stage touch disjoint `(write, read+write)` sets and
-///   may therefore run concurrently.
+/// - Systems in the same stage never write the same component or read a
+///   component written by another system in that stage, so they may run
+///   concurrently.
 /// - If the read-after-write dependencies cannot be ordered, `MakeSystem`
 ///   raises a compile error listing the systems in the cycle.
 ///

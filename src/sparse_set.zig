@@ -1,9 +1,9 @@
-/// Sparse-set ECS storage.
-///
-/// Each component owns a sparse map from entity to a dense row, plus two dense
-/// arrays: the entities and their component values. Lookups are one hash map
-/// lookup followed by an array index, iteration is contiguous, and removing a
-/// component is a swap-remove.
+//! Sparse-set ECS storage.
+//!
+//! Each component owns a sparse map from entity to a dense row, plus two dense
+//! arrays: the entities and their component values. Lookups are one hash map
+//! lookup followed by an array index, iteration is contiguous, and removing a
+//! component is a swap-remove.
 const std = @import("std");
 
 const root = @import("root.zig");
@@ -71,7 +71,6 @@ pub fn SparseSet(comptime Entry: type, comptime Components: type) type {
             }
         }
 
-        /// Returns a fresh entity index from the embedded generator.
         pub fn create(self: *Self) Entity {
             return self.generator.next();
         }
@@ -120,15 +119,13 @@ pub fn SparseSet(comptime Entry: type, comptime Components: type) type {
             return storage.has(entity);
         }
 
-        /// Number of entities that currently have `component`.
         pub fn count(self: *Self, comptime component: Component) usize {
             const storage = &@field(self.data, @tagName(component));
             return storage.dense_entities.items.len;
         }
 
-        /// Iterates over entities that currently have `component`.
-        ///
-        /// Adding or removing components invalidates the iterator.
+        /// Yields every entity with `component`. Adding or removing components
+        /// may invalidate the iterator.
         pub fn iterator(self: *Self, comptime component: Component) Iterator(component) {
             const storage = &@field(self.data, @tagName(component));
             return .{

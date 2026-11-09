@@ -1,9 +1,9 @@
-/// Hash-map ECS storage.
-///
-/// Every component gets one `AutoHashMap(Entity, T)`. This is the simplest
-/// backend: sparse component sets cost only the entities that have the
-/// component, but a component lookup is a hash lookup and iterating a component
-/// jumps across hash buckets.
+//! Hash-map ECS storage.
+//!
+//! Every component gets one `AutoHashMap(Entity, T)`. This is the simplest
+//! backend: sparse component sets cost only the entities that have the
+//! component, but a component lookup is a hash lookup and iterating a component
+//! jumps across hash buckets.
 const std = @import("std");
 
 const root = @import("root.zig");
@@ -21,7 +21,6 @@ pub fn Map(comptime Entry: type, comptime Components: type) type {
         pub const Component = meta.FieldEnum(Components);
         pub const EntityGenerator = root.EntryGenerator(Entry);
 
-        /// The iterator returned by `iterator`.
         pub fn Iterator(comptime component: Component) type {
             const T = ComponentType(component);
             return struct {
@@ -66,7 +65,6 @@ pub fn Map(comptime Entry: type, comptime Components: type) type {
             }
         }
 
-        /// Returns a fresh entity index from the embedded generator.
         pub fn create(self: *Self) Entity {
             return self.generator.next();
         }
@@ -113,14 +111,12 @@ pub fn Map(comptime Entry: type, comptime Components: type) type {
             return @field(self.data, @tagName(component)).contains(entity);
         }
 
-        /// Number of entities that currently have `component`.
         pub fn count(self: *Self, comptime component: Component) usize {
             return @field(self.data, @tagName(component)).count();
         }
 
-        /// Iterates over entities that currently have `component`.
-        ///
-        /// Adding or removing components invalidates the iterator.
+        /// Yields every entity with `component`. Adding or removing components
+        /// may invalidate the iterator.
         pub fn iterator(self: *Self, comptime component: Component) Iterator(component) {
             const map = &@field(self.data, @tagName(component));
             return .{ .inner = map.iterator() };

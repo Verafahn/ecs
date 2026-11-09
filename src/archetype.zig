@@ -1,9 +1,9 @@
-/// Archetype ECS storage.
-///
-/// Entities with the same component signature share an archetype. Each
-/// archetype stores an entity array plus one contiguous byte column per
-/// component, so iterating a component walks packed memory and adding a
-/// component moves the entity to the matching archetype.
+//! Archetype ECS storage.
+//!
+//! Entities with the same component signature share an archetype. Each
+//! archetype stores an entity array plus one contiguous byte column per
+//! component, so iterating a component walks packed memory and adding a
+//! component moves the entity to the matching archetype.
 const std = @import("std");
 
 const root = @import("root.zig");
@@ -95,7 +95,6 @@ pub fn Archetype(comptime Entry: type, comptime Components: type) type {
             self.locations.deinit();
         }
 
-        /// Returns a fresh entity index from the embedded generator.
         pub fn create(self: *Self) Entity {
             return self.generator.next();
         }
@@ -231,7 +230,6 @@ pub fn Archetype(comptime Entry: type, comptime Components: type) type {
                 .signature.isSet(@backingInt(component));
         }
 
-        /// Number of entities that currently have `component`.
         pub fn count(self: *Self, comptime component: Component) usize {
             const component_index = @backingInt(component);
             var total: usize = 0;
@@ -242,9 +240,8 @@ pub fn Archetype(comptime Entry: type, comptime Components: type) type {
             return total;
         }
 
-        /// Iterates over entities that currently have `component`.
-        ///
-        /// Adding or removing components invalidates the iterator.
+        /// Yields every entity with `component`. Adding or removing components
+        /// may invalidate the iterator.
         pub fn iterator(self: *Self, comptime component: Component) Iterator(component) {
             return .{ .world = self };
         }
