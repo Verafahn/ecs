@@ -1,9 +1,9 @@
 //! Shared building blocks for the ECS implementations.
 //!
 //! `Map`, `SparseSet`, and `Archetype` are interchangeable storage backends
-//! with the same world API. Type validation, component introspection, system
-//! scheduling, and execution live here; the backend modules contain only
-//! storage logic.
+//! with the same world API. Type validation, component introspection,
+//! joint-query row generation, system scheduling, and execution live here; the
+//! backend modules contain only storage logic.
 const std = @import("std");
 
 const meta = std.meta;
@@ -60,6 +60,82 @@ pub fn ComponentItem(comptime Entry: type, comptime T: type) type {
         entity: Entry,
         value_ptr: *T,
     };
+}
+
+/// Converts one joint-query element to the world's component enum.
+pub fn queryComponent(
+    comptime Components: type,
+    comptime component: anytype,
+) meta.FieldEnum(Components) {
+    const name = switch (@typeInfo(@TypeOf(component))) {
+        .enum_literal, .@"enum" => @tagName(component),
+        else => @compileError("query components must be enum literals"),
+    };
+
+    return comptime blk: {
+        const field_names = @typeInfo(Components).@"struct".field_names;
+        for (field_names, 0..) |field_name, i| {
+            if (std.mem.eql(u8, field_name, name)) {
+                const id: meta.FieldEnum(Components) = @fromBackingInt(@intCast(i));
+                break :blk id;
+            }
+        }
+        @compileError("query references unknown component '." ++ name ++ "'");
+    };
+}
+
+/// Validates the component tuple passed to a world's `query` method.
+///
+/// A query is a non-empty tuple of distinct component enum literals. A
+/// component named `entity` is rejected because it would collide with the
+/// generated `entity` field.
+pub fn validateQuery(comptime Components: type, comptime queried: anytype) void {
+    comptime {
+        const info = @typeInfo(@TypeOf(queried));
+        if (info != .@"struct" or !info.@"struct".is_tuple)
+            @compileError("query components must be a tuple of component enum literals");
+        if (info.@"struct".field_types.len == 0)
+            @compileError("query must include at least one component");
+
+        var seen: [info.@"struct".field_types.len][]const u8 = undefined;
+        var seen_count: usize = 0;
+        for (queried) |component| {
+            const id = queryComponent(Components, component);
+            const name = @tagName(id);
+            if (std.mem.eql(u8, name, "entity"))
+                @compileError("query component 'entity' conflicts with the item's entity field");
+            for (seen[0..seen_count]) |seen_name| {
+                if (std.mem.eql(u8, seen_name, name))
+                    @compileError("query contains duplicate component '." ++ name ++ "'");
+            }
+            seen[seen_count] = name;
+            seen_count += 1;
+        }
+    }
+}
+
+/// A row yielded by a joint query.
+///
+/// Contains the entity plus one pointer field per queried component, named
+/// after the component. Pointers may be invalidated by structural changes.
+pub fn QueryItem(
+    comptime Entry: type,
+    comptime Components: type,
+    comptime queried: anytype,
+) type {
+    validateQuery(Components, queried);
+    const count = @typeInfo(@TypeOf(queried)).@"struct".field_types.len;
+
+    var names: [count + 1][]const u8 = undefined;
+    var types: [count + 1]type = undefined;
+    names[0] = "entity";
+    types[0] = Entry;
+    inline for (queried, 0..) |component, i| {
+        const id = comptime queryComponent(Components, component);
+        names[i + 1] = @tagName(id);
+        types[i + 1] = *fieldType(Components, id);
+    }
+    return @Struct(.auto, null, &names, &types, &@splat(.{}));
 }
 
 /// Builds a struct with one storage field per component, named after the
@@ -538,6 +614,35 @@ fn exerciseWorld(comptime World: type) !void {
         item.value_ptr.y += 1;
     }
     try std.testing.expectEqual(@as(usize, 1), seen);
+
+    // Joint queries yield only entities that have every requested component.
+    const Item = World.Query(.{ .position, .velocity }).Item;
+    try std.testing.expect(@hasField(Item, "entity"));
+    try std.testing.expect(@hasField(Item, "position"));
+    try std.testing.expect(@hasField(Item, "velocity"));
+    try std.testing.expect(@FieldType(Item, "position") == *SharedPosition);
+    try std.testing.expect(@FieldType(Item, "velocity") == *SharedVelocity);
+
+    const partial = world.create();
+    try world.add(partial, .position, .{ .x = 100, .y = 100 });
+
+    var query = world.query(.{ .position, .velocity });
+    var query_seen: usize = 0;
+    while (query.next()) |item| {
+        query_seen += 1;
+        item.position.x += item.velocity.x;
+    }
+    try std.testing.expectEqual(@as(usize, 1), query_seen);
+    try std.testing.expectEqual(@as(f32, 8), world.get(entity, .position).?.x);
+
+    var reversed = world.query(.{ .velocity, .position });
+    var reversed_seen: usize = 0;
+    while (reversed.next()) |item| {
+        reversed_seen += 1;
+        item.velocity.y += item.position.y;
+    }
+    try std.testing.expectEqual(@as(usize, 1), reversed_seen);
+    try std.testing.expectEqual(@as(f32, 7), world.get(entity, .velocity).?.y);
 
     const removed = try world.remove(entity, .position);
     try std.testing.expectEqual(@as(f32, 3), removed.?.y);

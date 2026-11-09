@@ -246,6 +246,64 @@ pub fn Archetype(comptime Entry: type, comptime Components: type) type {
             return .{ .world = self };
         }
 
+        /// Iterates entities that have every component in `queried`.
+        ///
+        /// Every archetype whose signature contains all queried components is
+        /// visited. Adding or removing components may invalidate the query.
+        pub fn Query(comptime queried: anytype) type {
+            root.validateQuery(Components, queried);
+
+            return struct {
+                world: *Self,
+                archetype_index: usize = 0,
+                row: usize = 0,
+
+                pub const Item = root.QueryItem(Entry, Components, queried);
+
+                pub fn next(self: *@This()) ?Item {
+                    while (self.archetype_index < self.world.archetypes.items.len) {
+                        const archetype = &self.world.archetypes.items[self.archetype_index];
+
+                        if (matches(archetype.signature)) {
+                            if (self.row < archetype.entities.items.len) {
+                                const row = self.row;
+                                self.row += 1;
+
+                                var item: Item = undefined;
+                                item.entity = archetype.entities.items[row];
+                                inline for (queried) |component| {
+                                    const id = comptime root.queryComponent(Components, component);
+                                    const column = &archetype.columns.items[
+                                        archetype.columnIndex(@backingInt(id)).?
+                                    ];
+                                    @field(item, @tagName(id)) = column.ptr(ComponentType(id), row);
+                                }
+                                return item;
+                            }
+                        }
+
+                        self.archetype_index += 1;
+                        self.row = 0;
+                    }
+
+                    return null;
+                }
+
+                fn matches(signature: Signature) bool {
+                    inline for (queried) |component| {
+                        const id = comptime root.queryComponent(Components, component);
+                        if (!signature.isSet(@backingInt(id))) return false;
+                    }
+                    return true;
+                }
+            };
+        }
+
+        /// Creates a joint query over the components in `queried`.
+        pub fn query(self: *Self, comptime queried: anytype) Query(queried) {
+            return .{ .world = self };
+        }
+
         /// Runs a schedule produced by `root.MakeSystem`.
         pub fn execute(
             self: *Self,
@@ -472,6 +530,26 @@ test "archetype supports zero-sized marker components" {
     try std.testing.expectEqual(@as(f32, 4), world.get(entity, .position).?.x);
 }
 
+test "archetype query handles zero-sized components" {
+    var world: MarkerWorld = .init(std.testing.allocator);
+    defer world.deinit();
+
+    const entity = world.create();
+    try world.add(entity, .marker, .{});
+    try world.add(entity, .position, .{ .x = 4, .y = 5 });
+
+    var query = world.query(.{ .marker, .position });
+    var seen: usize = 0;
+    while (query.next()) |item| {
+        seen += 1;
+        _ = item.marker;
+        item.position.x += 1;
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), seen);
+    try std.testing.expectEqual(@as(f32, 5), world.get(entity, .position).?.x);
+}
+
 test "archetype moves entities between signatures" {
     var world: TestWorld = .init(std.testing.allocator);
     defer world.deinit();
@@ -541,6 +619,35 @@ test "archetype iterator walks every matching archetype" {
     try std.testing.expectEqual(@as(u32, 2), seen);
     try std.testing.expectEqual(@as(f32, 2), world.get(first, .position).?.x);
     try std.testing.expectEqual(@as(f32, 3), world.get(second, .position).?.x);
+}
+
+test "archetype query visits every matching archetype" {
+    var world: TestWorld = .init(std.testing.allocator);
+    defer world.deinit();
+
+    const both = world.create();
+    try world.add(both, .position, .{ .x = 1, .y = 0 });
+    try world.add(both, .velocity, .{ .x = 10, .y = 0 });
+
+    const with_health = world.create();
+    try world.add(with_health, .position, .{ .x = 2, .y = 0 });
+    try world.add(with_health, .velocity, .{ .x = 20, .y = 0 });
+    try world.add(with_health, .health, .{ .value = 5 });
+
+    const missing_velocity = world.create();
+    try world.add(missing_velocity, .position, .{ .x = 3, .y = 0 });
+
+    var query = world.query(.{ .position, .velocity });
+    var seen: usize = 0;
+    while (query.next()) |item| {
+        seen += 1;
+        item.position.y = item.velocity.x;
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), seen);
+    try std.testing.expectEqual(@as(f32, 10), world.get(both, .position).?.y);
+    try std.testing.expectEqual(@as(f32, 20), world.get(with_health, .position).?.y);
+    try std.testing.expectEqual(@as(f32, 0), world.get(missing_velocity, .position).?.y);
 }
 
 test "archetype executes systems in conflict order" {
